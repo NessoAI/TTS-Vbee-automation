@@ -14,7 +14,7 @@ import {
   withText
 } from '../prompts.js';
 import { parseDialogueV442, restoreNumberedListMarkers, validateCorrection, validateDialogue } from './dialogue.js';
-import { moveWithoutOverwrite, snapshotRars, waitForNewRar } from './files.js';
+import { moveWithoutOverwrite } from './files.js';
 import { JobStore } from './job-store.js';
 
 const DEMO_TEXT = 'Bây giờ, chúng ta sẽ tìm hiểu một trong những công cụ quan trọng nhất trong an toàn lao động, đó là HIRA, viết tắt của:\nVì sao phải thực hiện HIRA?';
@@ -36,8 +36,16 @@ export class JobRunner {
     const now = new Date().toISOString();
     return this.store.save({
       id: crypto.randomUUID(), documentUrl, mode, status: 'created',
-      validationIssues: [], createdAt: now, updatedAt: now
+      validationIssues: [], logs: [], createdAt: now, updatedAt: now
     });
+  }
+
+  private log(job: Job, msg: string): void {
+    if (!job.logs) job.logs = [];
+    const ts = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const entry = `[${ts}] ${msg}`;
+    job.logs.push(entry);
+    console.log(`[${job.id.slice(0, 8)}] ${msg}`);
   }
 
   private demoDialogue(): DialogueResult {
@@ -52,11 +60,14 @@ export class JobRunner {
 
   async start(id: string): Promise<void> {
     const job = this.store.get(id);
+    const log = (msg: string) => this.log(job, msg);
     try {
       job.status = 'extracting_document'; await this.store.save(job);
+      log('Bắt đầu xử lý...');
       if (this.config.automation.dryRun) {
         await this.delay();
         job.documentTitle = 'Demo HIRA'; job.sourceText = DEMO_TEXT;
+        log('DRY RUN — dữ liệu mẫu HIRA');
         job.status = 'correcting_text'; await this.store.save(job); await this.delay();
         job.correctedText = DEMO_TEXT;
         job.correctionAttempts = 1;
@@ -70,10 +81,13 @@ export class JobRunner {
         await this.delay();
         job.dialogue = this.demoDialogue();
       } else {
+        log('Đang đọc Google Docs...');
         const document = await this.docs.extract(job.documentUrl);
         job.documentTitle = document.title; job.sourceText = document.text;
+        log(`Đã lấy nội dung: "${document.title}" (${document.text.length} ký tự, ${document.tabCount} tab)`);
         job.status = 'correcting_text'; await this.store.save(job);
 
+        log('Đang hiệu chỉnh văn bản qua ChatGPT...');
         const session = await this.chatgpt.createSession();
         let attempts = 0;
         let correctedText = '';
@@ -81,6 +95,7 @@ export class JobRunner {
 
         while (attempts < 3) {
           attempts += 1;
+          log(`Hiệu chỉnh lần ${attempts}/3...`);
           let rawResponse = '';
           if (attempts === 1) {
             rawResponse = await this.chatgpt.sendPrompt(session, withText(CORRECTION_PROMPT, document.text));
@@ -112,6 +127,7 @@ export class JobRunner {
 
         job.correctedText = correctedText;
         job.correctionAttempts = attempts;
+        log(`Hiệu chỉnh xong sau ${attempts} lần (${correctionIssues.filter(i => i.severity === 'error').length} error, ${correctionIssues.filter(i => i.severity === 'warning').length} warning)`);
 
         if (correctionIssues.some((issue) => issue.severity === 'error')) {
           job.status = 'failed';
@@ -129,8 +145,10 @@ export class JobRunner {
         job.rolePromptRenderedSha256 = rolePromptData.renderedSha256;
         await this.store.save(job);
 
+        log('Đang phân vai A/B qua ChatGPT...');
         const dialogueRaw = await this.chatgpt.sendPrompt(session, rolePromptData.rendered);
         job.dialogue = parseDialogueV442(dialogueRaw);
+        log(`Phân vai xong: ${job.dialogue.dialogue.length} lượt thoại`);
       }
       job.validationIssues = [
         ...validateCorrection(job.sourceText!, job.correctedText!),
@@ -184,32 +202,40 @@ export class JobRunner {
   }
 
   private async pasteToVbee(job: Job): Promise<void> {
+    const log = (msg: string) => this.log(job, msg);
     job.status = 'creating_vbee_project'; await this.store.save(job);
     if (this.config.automation.dryRun) {
       await this.delay(); job.vbeeProjectUrl = 'https://studio.vbee.vn/projects/demo';
+      log('DRY RUN — bỏ qua VBEE');
       job.status = 'pasting_vbee_blocks'; await this.store.save(job); await this.delay(); return;
     }
-    job.vbeeProjectUrl = await this.vbee.createProject(job.documentTitle!);
+    log('Đang tạo project VBEE...');
+    job.vbeeProjectUrl = await this.vbee.createProject(job.documentTitle!, log);
+    log(`Project VBEE: ${job.vbeeProjectUrl}`);
     job.status = 'pasting_vbee_blocks'; await this.store.save(job);
-    await this.vbee.pasteDialogue(job.vbeeProjectUrl, job.dialogue!);
+    log(`Đang nhập ${job.dialogue!.dialogue.length} block...`);
+    await this.vbee.pasteDialogue(job.vbeeProjectUrl, job.dialogue!, log);
+    log('Nhập block hoàn tất');
     const verified = await this.vbee.verify(job.vbeeProjectUrl, job.dialogue!);
     if (!verified.ok) throw new Error(verified.issues.join(' '));
   }
 
   private async generateAndDownload(job: Job): Promise<void> {
+    const log = (msg: string) => this.log(job, msg);
     job.status = 'generating_audio'; await this.store.save(job);
     if (this.config.automation.dryRun) {
       await this.delay(); job.status = 'downloading'; await this.store.save(job); await this.delay();
       job.downloadedFile = `${this.config.files.destinationDir}\\${job.documentTitle}.rar`;
+      log('DRY RUN — hoàn tất');
       job.status = 'completed'; await this.store.save(job); return;
     }
-    const before = await snapshotRars(this.config.files.downloadsDir);
-    await this.vbee.generateAll(job.vbeeProjectUrl!);
-    // VBEE enables download only after selected blocks finish generating.
+    log('Đang tạo TTS hàng loạt...');
+    await this.vbee.generateAll(job.vbeeProjectUrl!, log);
     job.status = 'downloading'; await this.store.save(job);
-    await this.vbee.downloadAll(job.vbeeProjectUrl!);
-    const downloaded = await waitForNewRar(this.config.files.downloadsDir, before, this.config.automation.generationTimeoutMs);
+    log('Đang tải file âm thanh...');
+    const downloaded = await this.vbee.downloadAll(job.vbeeProjectUrl!, log);
     job.downloadedFile = await moveWithoutOverwrite(downloaded, this.config.files.destinationDir);
+    log(`Hoàn tất: ${job.downloadedFile}`);
     job.status = 'completed'; await this.store.save(job);
   }
 

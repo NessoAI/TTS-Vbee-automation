@@ -3,7 +3,8 @@
   "browser": {
     "profileDir": "data/browser-profile",
     "headless": false,
-    "channel": "chrome"
+    "channel": "chrome",
+    "followActiveTab": true
   },
   "chatgpt": {
     "projectName": "TTS POE",

@@ -37,18 +37,34 @@ export class VbeeAdapter {
     return new RegExp(`^${escaped}$`);
   }
 
-  async createProject(title: string): Promise<string> {
+  async createProject(title: string, log?: (msg: string) => void): Promise<string> {
     const page = await this.browser.pageFor('studio.vbee.vn');
     await page.goto(this.config.vbee.projectsUrl, { waitUntil: 'domcontentloaded' });
     await page.locator('div[role="button"]:has(img[alt="Tạo audio"])').first().click();
     await page.getByText('Tạo dự án mới', { exact: true }).filter({ visible: true }).last().click();
     await page.waitForURL(/\/projects\//);
 
-    const titleControl = page.locator('input.size-input[placeholder="Chưa có tiêu đề"]');
-    await titleControl.waitFor({ state: 'visible' });
-    await titleControl.fill(title);
-    await titleControl.blur();
     await page.locator('.block-wrapper-v2').first().waitFor({ state: 'visible' });
+
+    const titleInput = page.locator('input.size-input').first();
+    await titleInput.waitFor({ state: 'visible' });
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await titleInput.click();
+      await page.keyboard.press('Control+A');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type(title, { delay: 10 });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(1500);
+      const actual = await titleInput.inputValue().catch(() => '');
+      if (actual.trim() === title.trim()) {
+        log?.(`Tiêu đề project: "${title}" — OK (lần ${attempt})`);
+        break;
+      }
+      log?.(`Tiêu đề lần ${attempt}: expected "${title}", actual "${actual}"`);
+      await page.waitForTimeout(1000);
+    }
+
     return page.url();
   }
 
@@ -171,7 +187,7 @@ export class VbeeAdapter {
     }
   }
 
-  async pasteDialogue(projectUrl: string, dialogue: DialogueResult): Promise<void> {
+  async pasteDialogue(projectUrl: string, dialogue: DialogueResult, log?: (msg: string) => void): Promise<void> {
     const page = await this.browser.pageFor('studio.vbee.vn');
     await page.goto(projectUrl, { waitUntil: 'domcontentloaded' });
 
@@ -183,6 +199,7 @@ export class VbeeAdapter {
 
     let areas = page.locator('.public-DraftEditor-content[contenteditable="true"][role="textbox"]');
     const initialBlockCount = await areas.count();
+    log?.(`VBEE project mở, block khởi tạo: ${initialBlockCount}`);
     console.log(`VBEE initial block ready: count = ${initialBlockCount}`);
 
     if (initialBlockCount !== 1) {
@@ -253,14 +270,10 @@ export class VbeeAdapter {
 
       const orderStr = String(index + 1).padStart(2, '0');
       const totalStr = String(targetCount).padStart(2, '0');
-      console.log(`VBEE block ${orderStr}/${totalStr} — ${index === 0 ? 'default' : 'created'}`);
-      console.log(`Speaker: ${turn.speaker}`);
-      console.log(`Voice expected/actual: ${desired.name} / ${voice}`);
-      console.log(`Speed expected/actual: ${desired.speed} / (disabled)`);
-      console.log(`Text expected length/actual length: ${turn.text.length} / ${value.length}`);
-      console.log(`Text match: true`);
-      console.log(`Block ${orderStr} verified: PASS\n`);
-      
+      const summary = `Block ${orderStr}/${totalStr} ✓ — ${turn.speaker}:${desired.name} — ${value.length} ký tự`;
+      console.log(summary);
+      log?.(summary);
+
       await page.waitForTimeout(500);
     }
     
@@ -279,7 +292,7 @@ export class VbeeAdapter {
     return { ok: issues.length === 0, issues };
   }
 
-  async generateAll(projectUrl: string): Promise<void> {
+  async generateAll(projectUrl: string, log?: (msg: string) => void): Promise<void> {
     const page = await this.browser.pageFor('studio.vbee.vn');
     if (page.url() !== projectUrl) await page.goto(projectUrl, { waitUntil: 'domcontentloaded' });
     const selectAll = page.locator('.toolbar label').filter({ hasText: /Chọn tất cả|Bỏ chọn tất cả/ }).locator('input[type="checkbox"]');
@@ -289,6 +302,7 @@ export class VbeeAdapter {
     await generate.waitFor({ state: 'visible' });
     if (!await generate.isEnabled()) throw new Error('Nút TTS hàng loạt của VBEE đang bị vô hiệu hóa.');
     await generate.click();
+    log?.('Đã bấm TTS hàng loạt — chờ VBEE xử lý...');
   }
 
   private async availableDownloadPath(fileName: string): Promise<string> {
@@ -306,7 +320,7 @@ export class VbeeAdapter {
     }
   }
 
-  async downloadAll(projectUrl: string): Promise<void> {
+  async downloadAll(projectUrl: string, log?: (msg: string) => void): Promise<string> {
     const page = await this.browser.pageFor('studio.vbee.vn');
     if (page.url() !== projectUrl) await page.goto(projectUrl, { waitUntil: 'domcontentloaded' });
     
@@ -337,6 +351,9 @@ export class VbeeAdapter {
       throw new Error(`VBEE trả về file định dạng không hợp lệ: ${suggestedName}`);
     }
     
-    await file.saveAs(await this.availableDownloadPath(suggestedName));
+    const savedPath = await this.availableDownloadPath(suggestedName);
+    await file.saveAs(savedPath);
+    log?.(`Đã tải: ${suggestedName} → ${savedPath}`);
+    return savedPath;
   }
 }

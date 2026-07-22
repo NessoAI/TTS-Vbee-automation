@@ -110,6 +110,7 @@ function JobDetail({ job, onDialogue, onApproveScript, onApproveVbee, onCancel }
       {!['completed','failed','cancelled'].includes(job.status) && <button className="danger" onClick={onCancel}>Hủy workflow</button>}
     </div>
     {job.downloadedFile && <div className="success">Đã lưu: <code>{job.downloadedFile}</code></div>}
+    {job.logs && job.logs.length > 0 && <div className="job-logs"><h3>Log</h3><div className="log-scroll" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>{job.logs.map((line, i) => <div key={i} className="log-line">{line}</div>)}</div></div>}
   </>;
 }
 

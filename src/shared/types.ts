@@ -52,6 +52,7 @@ export interface Job {
   vbeeProjectUrl?: string;
   downloadedFile?: string;
   error?: string;
+  logs?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +63,7 @@ export interface AppConfig {
     profileDir: string;
     headless: boolean;
     channel: 'chrome' | 'msedge' | 'chromium';
+    followActiveTab: boolean;
   };
   chatgpt: {
     projectName: string;

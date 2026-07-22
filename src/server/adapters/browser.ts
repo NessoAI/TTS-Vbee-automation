@@ -28,7 +28,9 @@ export class BrowserManager {
     const existing = context.pages().find((page) => {
       try { return new URL(page.url()).hostname.includes(hostname); } catch { return false; }
     });
-    return existing ?? context.newPage();
+    const page = existing ?? await context.newPage();
+    if (this.config.browser.followActiveTab) await page.bringToFront();
+    return page;
   }
 
   async close(): Promise<void> {
