@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/jobs/*.json
+data/browser-profile/
+data/probes/
+*.log
+.env

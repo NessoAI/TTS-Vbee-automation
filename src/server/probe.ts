@@ -1,0 +1,23 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
+import { BrowserManager } from './adapters/browser.js';
+import { loadConfig } from './config.js';
+
+const config = loadConfig();
+const browser = new BrowserManager(config);
+const context = await browser.getContext();
+const page = context.pages()[0] ?? await context.newPage();
+const rl = readline.createInterface({ input, output });
+const target = await rl.question('URL cần probe (Google Docs, ChatGPT hoặc VBEE): ');
+await page.goto(target, { waitUntil: 'domcontentloaded' });
+await rl.question('Hãy đăng nhập/đi đến đúng màn hình rồi nhấn Enter tại terminal...');
+const directory = path.resolve(process.cwd(), 'data/probes');
+await fs.mkdir(directory, { recursive: true });
+const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+await fs.writeFile(path.join(directory, `${stamp}.html`), await page.content());
+await page.screenshot({ path: path.join(directory, `${stamp}.png`), fullPage: true });
+console.log(`Đã lưu probe tại ${directory}`);
+rl.close();
+await browser.close();

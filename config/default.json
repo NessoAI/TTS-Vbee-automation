@@ -1,0 +1,30 @@
+{
+  "serverPort": 4174,
+  "browser": {
+    "profileDir": "data/browser-profile",
+    "headless": false,
+    "channel": "chrome"
+  },
+  "chatgpt": {
+    "projectName": "TTS POE",
+    "baseUrl": "https://chatgpt.com",
+    "projectUrl": "https://chatgpt.com/g/g-p-6a5f4cf472c48191b5710ad0a12275a5/project"
+  },
+  "vbee": {
+    "projectsUrl": "https://studio.vbee.vn/projects",
+    "voiceA": "NoNa Phạm",
+    "speedA": "1.05x",
+    "voiceB": "HN - Minh Quân",
+    "speedB": "1.00x",
+    "maxBlockCharacters": 1000
+  },
+  "files": {
+    "downloadsDir": "C:\\Users\\DESKTOP\\Downloads",
+    "destinationDir": "D:\\NESSO AI\\PDT nesso\\POE\\HSE\\TTS"
+  },
+  "automation": {
+    "dryRun": false,
+    "timeoutMs": 120000,
+    "generationTimeoutMs": 1800000
+  }
+}
